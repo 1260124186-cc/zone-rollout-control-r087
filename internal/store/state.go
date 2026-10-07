@@ -48,7 +48,17 @@ func normalize(state domain.State) domain.State {
 
 func reconcileRevisionBindings(state *domain.State) {
 	for planID, plan := range state.Plans {
-		if plan.LatestRevisionID == "" && plan.ActivatedRevisionID == "" {
+		if plan.ActivatedRevisionID != "" {
+			// An activated plan stays bound to the revision that was current
+			// at activation. Later revisions remain stored as historical
+			// content only and must not take over the plan.
+			if plan.LatestRevisionID != plan.ActivatedRevisionID {
+				plan.LatestRevisionID = plan.ActivatedRevisionID
+				state.Plans[planID] = plan
+			}
+			continue
+		}
+		if plan.LatestRevisionID == "" {
 			continue
 		}
 		selectedID := ""
