@@ -66,7 +66,7 @@ func (s *Service) AddRevision(
 		if !ok {
 			return domain.NotFound("plan", planID)
 		}
-		if err := ensureRevisionAppendAllowed(plan, state); err != nil {
+		if err := ensureRevisionAppendAllowed(plan); err != nil {
 			return err
 		}
 		for _, revision := range state.Revisions {
@@ -188,13 +188,14 @@ func (s *Service) LatestRevision(
 		if !ok {
 			return domain.NotFound("plan", planID)
 		}
-		if plan.LatestRevisionID == "" {
+		pinnedID := plan.PinnedRevisionID()
+		if pinnedID == "" {
 			return domain.NotFound("revision", planID)
 		}
-		found, ok := state.Revisions[plan.LatestRevisionID]
+		found, ok := state.Revisions[pinnedID]
 		if !ok {
 			return domain.NewError(domain.CodeStorageFailure, "plan references a missing revision", map[string]any{
-				"revision_id": plan.LatestRevisionID,
+				"revision_id": pinnedID,
 			})
 		}
 		revision = found
@@ -289,37 +290,12 @@ func versionConflict(id string, expected uint64, actual uint64) *domain.DomainEr
 	})
 }
 
-func ensureRevisionAppendAllowed(plan domain.RolloutPlan, state *domain.State) error {
-	switch plan.State {
-	case domain.PlanDraft:
+func ensureRevisionAppendAllowed(plan domain.RolloutPlan) error {
+	if plan.State == domain.PlanDraft {
 		return nil
-	case domain.PlanActive:
-		if plan.LatestAssessmentID != "" {
-			return domain.InvalidState("active plan already has an assessment", map[string]any{
-				"plan_id": plan.ID,
-			})
-		}
-		for _, lease := range state.Leases {
-			if lease.PlanID != plan.ID {
-				continue
-			}
-			if lease.State == domain.LeaseClaimed {
-				return domain.InvalidState("active plan has an unreported lease", map[string]any{
-					"plan_id":  plan.ID,
-					"lease_id": lease.ID,
-				})
-			}
-		}
-		return nil
-	case domain.PlanCompleted:
-		return domain.InvalidState("completed plan cannot accept revisions", map[string]any{
-			"plan_id": plan.ID,
-			"state":   plan.State,
-		})
-	default:
-		return domain.InvalidState("revisions can be added only while plan is draft", map[string]any{
-			"plan_id": plan.ID,
-			"state":   plan.State,
-		})
 	}
+	return domain.InvalidState("revisions can be added only while plan is draft", map[string]any{
+		"plan_id": plan.ID,
+		"state":   plan.State,
+	})
 }

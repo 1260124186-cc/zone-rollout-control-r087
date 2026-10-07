@@ -50,12 +50,12 @@ func (s *Service) Evaluate(
 			result = existing
 			return nil
 		}
-		if plan.LatestRevisionID == "" {
+		revisionID := plan.PinnedRevisionID()
+		if revisionID == "" {
 			return domain.InvalidState("plan has no zone revision", map[string]any{
 				"plan_id": planID,
 			})
 		}
-		revisionID := assessmentRevisionID(plan, state.Revisions)
 		revision, ok := state.Revisions[revisionID]
 		if !ok {
 			return domain.NewError(domain.CodeStorageFailure, "plan references a missing revision", map[string]any{
@@ -87,28 +87,6 @@ func (s *Service) Evaluate(
 		return nil
 	})
 	return result, err
-}
-
-func assessmentRevisionID(plan domain.RolloutPlan, revisions map[string]domain.ZoneRevision) string {
-	selectedID := ""
-	selectedSerial := uint32(0)
-	for revisionID, revision := range revisions {
-		if revision.PlanID != plan.ID {
-			continue
-		}
-		if selectedID == "" || revision.Serial > selectedSerial {
-			selectedID = revisionID
-			selectedSerial = revision.Serial
-			continue
-		}
-		if revision.Serial == selectedSerial && revisionID < selectedID {
-			selectedID = revisionID
-		}
-	}
-	if selectedID == "" {
-		return plan.LatestRevisionID
-	}
-	return selectedID
 }
 
 func (s *Service) Latest(ctx context.Context, planID string) (domain.RolloutAssessment, error) {

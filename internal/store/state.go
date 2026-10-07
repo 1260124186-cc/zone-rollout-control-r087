@@ -51,25 +51,71 @@ func reconcileRevisionBindings(state *domain.State) {
 		if plan.LatestRevisionID == "" && plan.ActivatedRevisionID == "" {
 			continue
 		}
-		selectedID := ""
-		selectedSerial := uint32(0)
+		latestID := ""
+		latestSerial := uint32(0)
 		for revisionID, revision := range state.Revisions {
 			if revision.PlanID != planID {
 				continue
 			}
-			if selectedID == "" || revision.Serial > selectedSerial {
-				selectedID = revisionID
-				selectedSerial = revision.Serial
+			if latestID == "" || revision.Serial > latestSerial {
+				latestID = revisionID
+				latestSerial = revision.Serial
 				continue
 			}
-			if revision.Serial == selectedSerial && revisionID < selectedID {
-				selectedID = revisionID
+			if revision.Serial == latestSerial && revisionID < latestID {
+				latestID = revisionID
 			}
 		}
-		if selectedID == "" {
+		if latestID == "" {
 			continue
 		}
-		plan.LatestRevisionID = selectedID
+		if plan.State == domain.PlanDraft {
+			plan.LatestRevisionID = latestID
+			state.Plans[planID] = plan
+			continue
+		}
+		// Active and completed plans stay pinned to the revision that was
+		// current at activation. Later revisions already stored in the
+		// snapshot remain as historical content only.
+		pinnedID := plan.ActivatedRevisionID
+		if _, ok := state.Revisions[pinnedID]; pinnedID == "" || !ok {
+			pinnedID = activatedFallbackID(plan, state.Revisions, latestID)
+		}
+		plan.ActivatedRevisionID = pinnedID
+		plan.LatestRevisionID = pinnedID
 		state.Plans[planID] = plan
 	}
+}
+
+// activatedFallbackID derives the activation-time revision for snapshots that
+// predate the activated_revision_id field: the highest-serial revision created
+// no later than the activation timestamp. It falls back to the plan's latest
+// revision when no such derivation is possible.
+func activatedFallbackID(
+	plan domain.RolloutPlan,
+	revisions map[string]domain.ZoneRevision,
+	latestID string,
+) string {
+	if plan.ActivatedAt == nil {
+		return latestID
+	}
+	selectedID := ""
+	selectedSerial := uint32(0)
+	for revisionID, revision := range revisions {
+		if revision.PlanID != plan.ID || revision.CreatedAt.After(*plan.ActivatedAt) {
+			continue
+		}
+		if selectedID == "" || revision.Serial > selectedSerial {
+			selectedID = revisionID
+			selectedSerial = revision.Serial
+			continue
+		}
+		if revision.Serial == selectedSerial && revisionID < selectedID {
+			selectedID = revisionID
+		}
+	}
+	if selectedID == "" {
+		return latestID
+	}
+	return selectedID
 }
